@@ -1,116 +1,89 @@
-import type { IDoubleTokenRes } from '@/api/types/login'
-import type { CustomRequestOptions, IResponse } from '@/http/types'
-import { nextTick } from 'vue'
-import { useTokenStore } from '@/store/token'
-import { isDoubleTokenMode } from '@/utils'
-import { toLoginPage } from '@/utils/toLoginPage'
-import { ResultEnum } from './tools/enum'
+import type { CustomRequestOptions } from '@/http/types'
+import { useUserStore } from '@/store/user'
+import { getCurrentAppInfo } from '@/utils'
 
-// 刷新 token 状态管理
-let refreshing = false // 防止重复刷新 token 标识
-let taskQueue: (() => void)[] = [] // 刷新 token 请求队列
+export async function http<T>(options: CustomRequestOptions) {
+  // 通过uni 获得当前 platform,版本
+  // 合并获取系统信息
+  let platform = ''
+  let appId = ''
+  let accountInfo: any = {}
+  let version = '1.0.0'
 
-export function http<T>(options: CustomRequestOptions) {
+  try {
+    const sysInfo = uni.getSystemInfoSync()
+    platform = sysInfo.platform
+    appId = sysInfo.appId
+  }
+  catch (e) {
+    console.warn('获取系统信息失败:', e)
+  }
+
+  try {
+    accountInfo = getCurrentAppInfo()
+    version = accountInfo?.version?.length < 1 ? '1.0.0' : accountInfo.version
+  }
+  catch (e) {
+    console.warn('获取小程序账号信息失败:', e)
+    accountInfo = { miniProgram: {} }
+  }
+
+  // 通过uni 获得当前 appversion
+  const header = Object.assign({}, options.header, {
+    'uni-app-p': platform,
+    'uni-app-v': version ?? '1.0.0',
+    'uni-app-wx-env': accountInfo.miniProgram?.envVersion,
+    'uni-app-wx-appid': accountInfo.miniProgram?.appId,
+    'uni-app-id': appId,
+    'uni-app-version': 'v2',
+    'app-channel': 'weapp',
+  })
+
+  /* Uni编译宏，抖音 */
+  // #ifdef MP-TOUTIAO
+  header['app-channel'] = 'douyin'
+  // #endif
+
   // 1. 返回 Promise 对象
-  return new Promise<T>((resolve, reject) => {
+  return new Promise<IResData<T>>((resolve, reject) => {
     uni.request({
+      url: options.url,
       ...options,
+      header,
       dataType: 'json',
       // #ifndef MP-WEIXIN
       responseType: 'json',
       // #endif
       // 响应成功
       success: async (res) => {
-        const responseData = res.data as IResponse<T>
-        const { code } = responseData
-
-        // 检查是否是401错误（包括HTTP状态码401或业务码401）
-        const isTokenExpired = res.statusCode === 401 || code === 401
-
-        if (isTokenExpired) {
-          const tokenStore = useTokenStore()
-          if (!isDoubleTokenMode) {
-            // 未启用双token策略，清理用户信息，跳转到登录页
-            tokenStore.logout()
-            toLoginPage()
-            return reject(res)
-          }
-
-          /* -------- 无感刷新 token ----------- */
-          const { refreshToken } = tokenStore.tokenInfo as IDoubleTokenRes || {}
-          // token 失效的，且有刷新 token 的，才放到请求队列里
-          if (refreshToken) {
-            taskQueue.push(() => {
-              resolve(http<T>(options))
-            })
-          }
-
-          // 如果有 refreshToken 且未在刷新中，发起刷新 token 请求
-          if (refreshToken && !refreshing) {
-            refreshing = true
-            try {
-              // 发起刷新 token 请求（使用 store 的 refreshToken 方法）
-              await tokenStore.refreshToken()
-              // 刷新 token 成功
-              refreshing = false
-              nextTick(() => {
-                // 关闭其他弹窗
-                uni.hideToast()
-                uni.showToast({
-                  title: 'token 刷新成功',
-                  icon: 'none',
-                })
-              })
-              // 将任务队列的所有任务重新请求
-              taskQueue.forEach(task => task())
-            }
-            catch (refreshErr) {
-              console.error('刷新 token 失败:', refreshErr)
-              refreshing = false
-              // 刷新 token 失败，跳转到登录页
-              nextTick(() => {
-                // 关闭其他弹窗
-                uni.hideToast()
-                uni.showToast({
-                  title: '登录已过期，请重新登录',
-                  icon: 'none',
-                })
-              })
-              // 清除用户信息
-              await tokenStore.logout()
-              // 跳转到登录页
-              setTimeout(() => {
-                toLoginPage()
-              }, 2000)
-            }
-            finally {
-              // 不管刷新 token 成功与否，都清空任务队列
-              taskQueue = []
-            }
-          }
-
+        res.data = { data: res.data }
+        // 状态码 2xx，参考 axios 的设计
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          // 2.1 提取核心数据 res.data
+          return resolve(res.data as IResData<T>)
+        }
+        const resData: IResData<T> = res.data as IResData<T>
+        if ((res.statusCode === 401) || (resData.code === 401)) {
+          const userStore = useUserStore()
+          userStore.removeUserInfo()
           return reject(res)
         }
+        else {
+          // 其他错误 -> 根据后端错误信息轻提示
+          // !options.hideErrorToast
+          // && uni.showToast({
+          //   icon: 'none',
+          //   title: (res.data as IResData<T>).msg || '请求错误1',
+          // })
 
-        // 处理其他成功状态（HTTP状态码200-299）
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          // 处理业务逻辑错误
-          if (code !== ResultEnum.Success0 && code !== ResultEnum.Success200) {
-            uni.showToast({
-              icon: 'none',
-              title: responseData.msg || responseData.message || '请求错误',
-            })
+          // 如果存在 res.data.data.code 则reject new Error(res.data.data.msg)
+          if (res?.data?.data?.code) {
+            reject(new Error(res.data.data.error))
           }
-          return resolve(responseData.data)
+          else {
+            reject(res)
+          }
         }
-
-        // 处理其他错误
-        !options.hideErrorToast
-        && uni.showToast({
-          icon: 'none',
-          title: (res.data as any).msg || '请求错误',
-        })
-        reject(res)
       },
       // 响应失败
       fail(err) {
@@ -186,7 +159,6 @@ export function httpDelete<T>(url: string, query?: Record<string, any>, header?:
   })
 }
 
-// 支持与 axios 类似的API调用
 http.get = httpGet
 http.post = httpPost
 http.put = httpPut
