@@ -5,13 +5,13 @@ import { CustomRequestOptions_ } from '@/http/types';
 
 import * as API from './types';
 
-/** 用户列表 GET /user/listAll */
-export function listAllUsingGet({
+/** 健康检查 检查API服务是否正常运行 GET /api/actx/health */
+export function actxHealthUsingGet({
   options,
 }: {
-  options?: CustomRequestOptions_;
+  options?: CustomRequestOptions;
 }) {
-  return request<API.ListAllUsingGetResponse>('/user/listAll', {
+  return request<unknown>('/api/actx/health', {
     method: 'GET',
     ...(options || {}),
   });

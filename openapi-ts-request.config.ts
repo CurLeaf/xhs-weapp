@@ -1,14 +1,13 @@
-import { defineConfig } from 'openapi-ts-request'
+import type { GenerateServiceProps } from 'openapi-ts-request'
 
-export default defineConfig([
+export default ([
   {
-    describe: 'unibest-openapi-test',
-    schemaPath: 'https://ukw0y1.laf.run/unibest-opapi-test.json',
+    schemaPath: 'http://127.0.0.1:3000/api/api/ui/json',
     serversPath: './src/service',
     requestLibPath: `import request from '@/http/vue-query';\n import { CustomRequestOptions_ } from '@/http/types';`,
-    requestOptionsType: 'CustomRequestOptions_',
+    requestOptionsType: 'CustomRequestOptions',
     isGenReactQuery: false,
-    reactQueryMode: 'vue',
+    isTranslateToEnglishTag: true,
     isGenJavaScript: false,
   },
-])
+]) as GenerateServiceProps[]
