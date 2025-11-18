@@ -1,5 +1,4 @@
 import type { CustomRequestOptions } from '@/http/types'
-import { useUserStore } from '@/store/user'
 import { getCurrentAppInfo } from '@/utils'
 
 export async function http<T>(options: CustomRequestOptions) {
@@ -64,8 +63,6 @@ export async function http<T>(options: CustomRequestOptions) {
         }
         const resData: IResData<T> = res.data as IResData<T>
         if ((res.statusCode === 401) || (resData.code === 401)) {
-          const userStore = useUserStore()
-          userStore.removeUserInfo()
           return reject(res)
         }
         else {

@@ -1,45 +1,43 @@
-/**
- * by 菲鸽 on 2025-08-19
- * 路由拦截，通常也是登录拦截
- * 黑、白名单的配置，请看 config.ts 文件， EXCLUDE_LOGIN_PATH_LIST
- */
 import { tabbarStore } from '@/tabbar/store'
-import { getAllPages, getLastPage, parseUrlToObj } from '@/utils/index'
+import { needLoginPages as _needLoginPages, getLastPage, getNeedLoginPages } from '@/utils'
 
-export const FG_LOG_ENABLE = false
+// TODO Check
+const loginRoute = import.meta.env.VITE_LOGIN_URL
 
+const isDev = import.meta.env.DEV
+
+// 黑名单登录拦截器 - （适用于大部分页面不需要登录，少部分页面需要登录）
 export const navigateToInterceptor = {
   // 注意，这里的url是 '/' 开头的，如 '/pages/index/index'，跟 'pages.json' 里面的 path 不同
   // 增加对相对路径的处理，BY 网友 @ideal
-  invoke({ url, query }: { url: string, query?: Record<string, string> }) {
-    if (url === undefined) {
-      return
-    }
-    let { path, query: _query } = parseUrlToObj(url)
-
-    FG_LOG_ENABLE && console.log('\n\n路由拦截器:-------------------------------------')
-    FG_LOG_ENABLE && console.log('路由拦截器 1: url->', url, ', query ->', query)
-    const myQuery = { ..._query, ...query }
-    // /pages/route-interceptor/index?name=feige&age=30
-    FG_LOG_ENABLE && console.log('路由拦截器 2: path->', path, ', _query ->', _query)
-    FG_LOG_ENABLE && console.log('路由拦截器 3: myQuery ->', myQuery)
+  invoke({ url }: { url: string }) {
+    // console.log(url) // /pages/route-interceptor/index?name=feige&age=30
+    let path = url.split('?')[0]
 
     // 处理相对路径
     if (!path.startsWith('/')) {
-      const currentPath = getLastPage()?.route || ''
+      const currentPath = getLastPage().route
       const normalizedCurrentPath = currentPath.startsWith('/') ? currentPath : `/${currentPath}`
       const baseDir = normalizedCurrentPath.substring(0, normalizedCurrentPath.lastIndexOf('/'))
       path = `${baseDir}/${path}`
     }
 
-    // 处理路由不存在的情况
-    if (path !== '/' && !getAllPages().some(page => page.path !== path)) {
-      console.warn('路由不存在:', path)
-      return false // 明确表示阻止原路由继续执行
+    let needLoginPages: string[] = []
+    // 为了防止开发时出现BUG，这里每次都获取一下。生产环境可以移到函数外，性能更好
+    if (isDev) {
+      needLoginPages = getNeedLoginPages()
     }
-
-    // 处理直接进入路由非首页时，tabbarIndex 不正确的问题
-    tabbarStore.setAutoCurIdx(path)
+    else {
+      needLoginPages = _needLoginPages
+    }
+    const isNeedLogin = needLoginPages.includes(path)
+    if (!isNeedLogin) {
+      return true
+    }
+    tabbarStore.restorePrevIdx()
+    const redirectRoute = `${loginRoute}?redirect=${encodeURIComponent(url)}`
+    uni.navigateTo({ url: redirectRoute })
+    return false
   },
 }
 
